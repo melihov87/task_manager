@@ -4,98 +4,63 @@ from datetime import datetime
 from typing import Dict
 import sys
 import re
-sys.stdout.reconfigure(encoding='utf-8')
+
+
+def setup_environment():
+    """Setup environment configurations like stdout encoding."""
+    sys.stdout.reconfigure(encoding='utf-8')
 
 
 class Task:
     def __init__(self, title: str, description: str, category: str, due_date: str, priority: str):
-
         def remove_special_characters(input_string: str) -> str:
-            # Удаляем все символы, кроме букв и цифр
-            return re.sub(r'[^a-zA-Z0-9а-яА-Я]', '', input_string)
+            return re.sub(r'[^a-zA-Z0-9а-яА-Я ]', '', input_string)
 
-        # Удаление специальных символов
-        title = remove_special_characters(title)
-        description = remove_special_characters(description)
-        category = remove_special_characters(category)
+        self.title = remove_special_characters(title)
+        self.description = remove_special_characters(description)
+        self.category = remove_special_characters(category)
+        self.priority = remove_special_characters(priority)
 
-        # Проверка обязательных полей
-        if not title.strip():
+        if not self.title.strip():
             raise ValueError("Поле 'title' обязательно для заполнения.")
-        if not description.strip():
+        if not self.description.strip():
             raise ValueError("Поле 'description' обязательно для заполнения.")
-        if not category.strip():
+        if not self.category.strip():
             raise ValueError("Поле 'category' обязательно для заполнения.")
-        if not priority.strip():
+        if not self.priority.strip():
             raise ValueError("Поле 'priority' обязательно для заполнения.")
 
-        # Повторный ввод срока выполнения до правильного формата
-        while not due_date.strip():
-            print("Поле 'due_date' обязательно для заполнения.")
-            due_date = input("Введите срок выполнения (в формате YYYY-MM-DD): ")
+        try:
+            self.due_date = datetime.strptime(due_date, "%Y-%m-%d")
+        except ValueError:
+            raise ValueError("Поле 'due_date' должно быть в формате YYYY-MM-DD.")
 
-        while True:
-            try:
-                # Преобразуем дату в нужный формат
-                self.due_date = datetime.strptime(due_date, "%Y-%m-%d")
+        if self.due_date < datetime.now():
+            raise ValueError("Дата выполнения не может быть старше текущей даты.")
 
-                # Проверка, что дата не старше текущей
-                if self.due_date < datetime.now():
-                    print("Ошибка: Дата выполнения не может быть старше текущей даты.")
-                    due_date = input("Введите срок выполнения (в формате YYYY-MM-DD): ")
-                else:
-                    break  # Выход из цикла, если дата введена корректно
-            except ValueError:
-                print("Ошибка: Поле 'due_date' должно быть в формате YYYY-MM-DD.")
-                due_date = input("Введите срок выполнения (в формате YYYY-MM-DD): ")
-
-        # Проверка приоритета
-        while priority.strip().lower() not in ['низкий', 'средний', 'высокий']:
-            print("Ошибка: Приоритет должен быть одним из следующих: 'низкий', 'средний', 'высокий'.")
-            priority = input("Введите приоритет (низкий, средний, высокий): ")
-
-        self.id = None
-        self.title = title.capitalize()
-        self.description = description.capitalize()
-        self.category = category.capitalize()
-        self.due_date = due_date
-        self.priority = priority.capitalize()
         self.status = "Не выполнена"
 
-    def mark_done(self):
-        self.status = "Выполнена"
-
-    def to_dict(self) -> Dict:
+    def to_dict(self):
         return {
-            "id": self.id,
             "title": self.title,
             "description": self.description,
             "category": self.category,
-            "due_date": self.due_date,
+            "due_date": self.due_date.strftime("%Y-%m-%d"),
             "priority": self.priority,
             "status": self.status,
         }
 
-    @classmethod
-    def from_dict(cls, data: Dict):
-        required_keys = ["id", "title", "description", "category", "due_date", "priority", "status"]
-        if not all(key in data for key in required_keys):
-            raise ValueError(f"Некоторые обязательные ключи отсутствуют: {set(required_keys) - set(data.keys())}")
+    @staticmethod
+    def from_dict(data):
+        return Task(
+            data["title"],
+            data["description"],
+            data["category"],
+            data["due_date"],
+            data["priority"],
+        )
 
-        for key in ["title", "description", "category", "priority", "due_date"]:
-            if key in data and not data[key].strip():
-                data[key] = "Не указано"  # Заменяем пустое значение на строку по умолчанию
 
-        # Проверка формата даты
-        try:
-            datetime.strptime(data["due_date"], "%Y-%m-%d")
-        except ValueError:
-            raise ValueError("Поле 'due_date' должно быть в формате YYYY-MM-DD.")
-
-        task = cls(data["title"], data["description"], data["category"], data["due_date"], data["priority"])
-        task.id = data["id"]
-        task.status = data["status"]
-        return task
 
 
 class TaskManager:
@@ -114,18 +79,27 @@ class TaskManager:
             return []
 
     def save_tasks(self):
-        with open(self.file_path, "w", encoding="utf-8") as file:
-            json.dump([task.to_dict() for task in self.tasks], file, ensure_ascii=False, indent=4)
+        def serialize_task(task):
+            data = task.__dict__.copy()
+            if isinstance(data['due_date'], datetime):
+                data['due_date'] = data['due_date'].isoformat()
+            return data
 
-    def add_task(self, title, description, category, due_date, priority):
-        try:
-            task = Task(title, description, category, due_date, priority)
-            task.id = self.generate_id()
-            self.tasks.append(task)
-            self.save_tasks()
-            print("Задача успешно добавлена!")
-        except ValueError as e:
-            print(f"Ошибка: {e}")
+        with open("tasks.json", "w", encoding="utf-8") as f:
+            json.dump([serialize_task(task) for task in self.tasks], f, ensure_ascii=False, indent=4)
+
+    # def add_task(self, title, description, category, due_date, priority):
+    #     try:
+    #         task = Task(title, description, category, due_date, priority)
+    #         task.id = self.generate_id()
+    #         self.tasks.append(task)
+    #         self.save_tasks()
+    #         print("Задача успешно добавлена!")
+    #     except ValueError as e:
+    #         print(f"Ошибка: {e}")
+
+    def add_task(self, task: Task):
+        self.tasks.append(task)
 
     def generate_id(self) -> int:
         return max([task.id for task in self.tasks], default=0) + 1
@@ -147,18 +121,18 @@ class TaskManager:
 
         try:
             if title:
-                task.title = title
+                task.title = title.lower().capitalize()
             if description:
-                task.description = description
+                task.description = description.lower().capitalize()
             if category:
-                task.category = category
+                task.category = category.lower().capitalize()
             if due_date:
                 datetime.strptime(due_date, "%Y-%m-%d")  # Проверка формата
                 task.due_date = due_date
             if priority:
-                task.priority = priority
+                task.priority = priority.lower().capitalize()
             if status:
-                task.status = status
+                task.status = status.lower().capitalize()
             self.save_tasks()
             print(f"Задача с ID {task_id} успешно обновлена.")
         except ValueError as e:
